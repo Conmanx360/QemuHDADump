@@ -55,6 +55,12 @@ connor@connor-Z97X-Gaming-7:~$ tty
   
   These are raw data, so I'd suggest formatting them. I'll include my formatting program, it is pretty simple. It prints them out as hexadecimal unsigned int's, which are easier to read for me. Most hex editors just show them in byte order instead.
   
+  To use the formatting program, just type:
+  
+  ./frameDumpFormatted /path/to/allCORBframes
+  
+  It will print the addresses on the left, and output it to the terminal. I usually tee the output to a file so I can mess with it and write comments myself.
+  
   So now you have the hda-verbs as they ran inside the virtual machine. Do with them as you please. Maybe use it to make a sound card that works on one operating system work on another. That'd be nice of you.
   
   In this guide/explanation, I didn't include how to do VFIO stuffs. You should be able to google that yourself. If not, I can do a write-up, but I'm pretty sure there are better guides than I could write out there currently.
