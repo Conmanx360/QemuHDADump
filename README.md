@@ -13,9 +13,9 @@ I thought up the idea, and could only find information on anyone else doing some
   
   From 1100 to 0 to prevent mmap'ing, and then also edit:
   
-  DEFINE_PROP_BOOL("x-no-mmap", VFIOPCIDevice, vbasedev.no_mmap, true)
+  DEFINE_PROP_BOOL("x-no-mmap", VFIOPCIDevice, vbasedev.no_mmap, false)
  
-  From true to false to prevent it completely. The first timeout part might not be necessary, but I do it anyways.
+  From false to true to prevent it completely. The first timeout part might not be necessary, but I do it anyways.
   
   Now, before compiling, do a configure in the source directory, like this:
   
