@@ -27,7 +27,7 @@ void get_corb_buffer_addr(char *array, char *corb_buffer_addr, unsigned int tlo)
 
 unsigned int regionCheck(char *array, unsigned int tlo)
 {
-	unsigned int current_region = 0;
+//	unsigned int current_region = 0;
 //	printf("region check entered \n");	
 //	printf("Char region: %c \n", array[tlo + 40]);
 	switch(array[tlo + 40]) {
@@ -38,6 +38,7 @@ unsigned int regionCheck(char *array, unsigned int tlo)
 //		printf("region two detected. \n");
 		return 2;
 	default:
+ 		printf("char region: %c \n", array[tlo + 40]);
 		return 0;
 	}
 	
@@ -46,15 +47,18 @@ unsigned int regionCheck(char *array, unsigned int tlo)
 /*
  * Get the character offset from the PID and the time of the trace.
  */
-unsigned int traceLineOffset(char *array) 
+int traceLineOffset(char *array) 
 {
-	unsigned int tlo, i;
-//	printf("traceLineOffset entered.\n");
-	for(i = 0; array[i] != ':'; i++) {
-		tlo = i;
-	}
-
-	return tlo + 1;
+	int i, j;
+	char match_chars[] = { '@', '.', ':', 0 };
+	i = j = 0;
+	do {
+	  for(;array[i] && array[i] != match_chars[j]; i++);
+	  if (array[i] != match_chars[j])
+	    return -1;
+	  ++j;
+	} while(match_chars[j] != 0);
+	return i;
 }
 
 /*
@@ -62,46 +66,56 @@ unsigned int traceLineOffset(char *array)
  */
 //Should you base it on paranthese ')' instead of newline?
 //Would save you from problems when newline doesn't occur...
-void getLine(char *array) 
+int getLine(char *array) 
 {
-	char c;
-	unsigned short i = 0;
+	int c;
+	int i = 0;
 
-	memset(&array[0], 0, sizeof(array));
-//	printf("getLine enter. \n");	
-	while((c=getchar()) != ')') {
+	memset(&array[0], 0, MAXLINE);
+	while(((i+1) < MAXLINE) && ((c=getchar()) != ')') && (c != '\n') && (c != '\r') && (c!=EOF)) {
 		array[i] = c;
 		i++;
 	}
-	array[i + 1] = ')';
-//	printf("getLine exit. \n");	
- 
-	return;
+	if (c==EOF)
+	{
+	  array[i] = 0;
+	  return 0;
+	} else
+	{
+	  array[i] = c; // should be ')'
+	  array[i+1] = 0;
+	}
+	return 1;
 }
 
 
 void dumpMem(char *array, unsigned short framenumber, int fd) 
 {
 	int i;
-	int file = fd;
+	// int file = fd;
 	unsigned short frameno = framenumber;
 	unsigned int digit_one, digit_two;
   
 	char nl[] = "\n";
-	char stop[] = "stop\n";
-	char cont[] = "cont\n";
+	// char stop[] = "stop\n";
+	// char cont[] = "cont\n";
 	char pmemsave_part1[] = "pmemsave ";
 	char pmemsave_part2[] = " 0x1000 ";
 	char frame[] = "frame";
 	char frameChar[] = "00"; 
    
-	printf("dumpMem entered...\n");   
+        if (array[0] == '\0')
+	{
+	  printf("dumpMem entered... but the address is not set, skipping\n");   
+	  return;
+        } else
+	  printf("dumpMem entered...\n");   
 
 	for(i = 0; pmemsave_part1[i]; i++) {
 		ioctl(fd, TIOCSTI, pmemsave_part1+i);
 	}
 
-	for(i = 0; i < 10; i++) {
+	for(i = 0; i < 10 && array[i]; i++) {
 		ioctl(fd, TIOCSTI, array+i);
 	}
 
@@ -114,7 +128,7 @@ void dumpMem(char *array, unsigned short framenumber, int fd)
 	}
 
 	digit_one = (frameno % 10);
-	digit_two = (frameno / 10);
+	digit_two = (frameno / 10) % 10;
 	
 	frameChar[1] = '0' + digit_one;
 	frameChar[0] = '0' + digit_two;
@@ -130,29 +144,41 @@ void dumpMem(char *array, unsigned short framenumber, int fd)
 
 int main(int argc, char *argv[]) 
 {
+	char corb_buffer_location[16];
+	char trace_line[MAXLINE];
 	unsigned short framenumber = 0;
 	int devno = 1;
 	int fd;
-	int i;
+	unsigned int i = 0;
 	unsigned int total_verbs = 0;
 	char cont[] = "cont\n";   
  
+        if (argc <= devno)
+	  return 1;
+
 	fd = open(argv[devno], O_RDWR);
     
+        if (fd < 0)
+	  return 2;
+
 	for(i = 0; cont[i]; i++) {
 		ioctl(fd, TIOCSTI, cont+i);
 	}
 
-	while(1) {
-		char corb_buffer_location[16];	   
-		unsigned short tlo = 0;  // trace line offset, due to PID
-		char trace_line[MAXLINE];
-		unsigned short switch_check = 0;
-		unsigned short i;   
-		unsigned short init_array = 0;		
+        memset(corb_buffer_location, 0, sizeof(corb_buffer_location));
 
-		getLine(trace_line);
+	while(1) {
+		int tlo = 0;  // trace line offset, due to PID
+		unsigned short switch_check = 0;
+		// unsigned short init_array = 0;		
+
+		memset(trace_line, 0, sizeof(trace_line));
+		if (!getLine(trace_line))
+		  break;
 		tlo = traceLineOffset(trace_line);
+		if (tlo < 0)
+		  // ignore non-trace lines
+		  continue;
 		switch_check = regionCheck(trace_line, tlo);
 //		printf("Switch check = %d \n", switch_check); 
 		if(switch_check == 1) {
@@ -161,6 +187,7 @@ int main(int argc, char *argv[])
 //				printf("case 4 entered. \n");
 				switch(trace_line[tlo + 45]) {
 				case '0':
+        				memset(corb_buffer_location, 0, sizeof(corb_buffer_location));
 					get_corb_buffer_addr(trace_line, corb_buffer_location, tlo);
 					break;
 				case '8':
@@ -202,9 +229,12 @@ int main(int argc, char *argv[])
 //				printf("%c", trace_line[i + (tlo + 42)]);
 //			}
 			putchar('\n');
+		} else {
+		  printf("switch check %u\n", switch_check);
 		}
 		memset(&trace_line[0], 0, sizeof(trace_line));
 	}
+	return 0;
 }
 
 
