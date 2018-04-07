@@ -27,16 +27,13 @@ void get_corb_buffer_addr(char *array, char *corb_buffer_addr, unsigned int tlo)
 
 unsigned int regionCheck(char *array, unsigned int tlo)
 {
-//	unsigned int current_region = 0;
-//	printf("region check entered \n");	
-//	printf("Char region: %c \n", array[tlo + 40]);
 	switch(array[tlo + 40]) {
 	case '0':
-//		printf("region zero detected. \n");
 		return 1;
 	case '2':
-//		printf("region two detected. \n");
 		return 2;
+	case '4':
+		return 3;
 	default:
  		printf("char region: %c \n", array[tlo + 40]);
 		return 0;
@@ -72,18 +69,17 @@ int getLine(char *array)
 	int i = 0;
 
 	memset(&array[0], 0, MAXLINE);
-	while(((i+1) < MAXLINE) && ((c=getchar()) != ')') && (c != '\n') && (c != '\r') && (c!=EOF)) {
+	while(((i+1) < MAXLINE) && ((c=getchar()) != ')') && (c != '\n') && 
+				(c != '\r') && (c!=EOF)) {
 		array[i] = c;
 		i++;
 	}
-	if (c==EOF)
-	{
-	  array[i] = 0;
-	  return 0;
-	} else
-	{
-	  array[i] = c; // should be ')'
-	  array[i+1] = 0;
+	if (c==EOF) {
+		array[i] = 0;
+	  	return 0;
+	} else {
+		array[i] = c; // should be ')'
+	 	array[i+1] = 0;
 	}
 	return 1;
 }
@@ -154,12 +150,12 @@ int main(int argc, char *argv[])
 	char cont[] = "cont\n";   
  
         if (argc <= devno)
-	  return 1;
+		return 1;
 
 	fd = open(argv[devno], O_RDWR);
     
         if (fd < 0)
-	  return 2;
+		return 2;
 
 	for(i = 0; cont[i]; i++) {
 		ioctl(fd, TIOCSTI, cont+i);
@@ -170,21 +166,21 @@ int main(int argc, char *argv[])
 	while(1) {
 		int tlo = 0;  // trace line offset, due to PID
 		unsigned short switch_check = 0;
-		// unsigned short init_array = 0;		
 
 		memset(trace_line, 0, sizeof(trace_line));
 		if (!getLine(trace_line))
 		  break;
 		tlo = traceLineOffset(trace_line);
 		if (tlo < 0)
-		  // ignore non-trace lines
-		  continue;
+		  	// ignore non-trace lines
+			continue;
+		
 		switch_check = regionCheck(trace_line, tlo);
-//		printf("Switch check = %d \n", switch_check); 
-		if(switch_check == 1) {
+
+		switch(switch_check) {
+		case 1:
 			switch(trace_line[tlo + 44]) {
 			case '4':
-//				printf("case 4 entered. \n");
 				switch(trace_line[tlo + 45]) {
 				case '0':
         				memset(corb_buffer_location, 0, sizeof(corb_buffer_location));
@@ -217,20 +213,32 @@ int main(int argc, char *argv[])
 				putchar('\n');
 				break;
 			}
-		}
-		else if(switch_check == 2) {
+		
+			break;
+		case 2:
 			printf("Current verb 0x%04x Region2+", total_verbs);
 			i = 0;
 			while(trace_line[i + (tlo + 42)] != ')') {
 				printf("%c", trace_line[i + (tlo + 42)]);
 				i++;
 			}
-//			for(i = 0; trace_line[i + (tlo + 42)] != '\n'; i++) {
-//				printf("%c", trace_line[i + (tlo + 42)]);
-//			}
 			putchar('\n');
-		} else {
-		  printf("switch check %u\n", switch_check);
+		
+			break;
+		
+		case 3:
+			printf("Current verb 0x%04x Region4+", total_verbs);
+			i = 0;
+			while(trace_line[i + (tlo + 42)] != ')') {
+				printf("%c", trace_line[i + (tlo + 42)]);
+				i++;
+			}
+			putchar('\n');
+		
+			break;
+		default:
+			printf("switch check %u\n", switch_check);
+			break;
 		}
 		memset(&trace_line[0], 0, sizeof(trace_line));
 	}
