@@ -168,6 +168,7 @@ int main(int argc, char *argv[])
 		unsigned short switch_check = 0;
 
 		memset(trace_line, 0, sizeof(trace_line));
+		fflush(stdout);
 		if (!getLine(trace_line))
 		  break;
 		tlo = traceLineOffset(trace_line);
@@ -241,6 +242,7 @@ int main(int argc, char *argv[])
 			break;
 		}
 		memset(&trace_line[0], 0, sizeof(trace_line));
+		fflush(stdout);
 	}
 	return 0;
 }
