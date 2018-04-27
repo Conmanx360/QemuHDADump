@@ -15,7 +15,7 @@
 void get_corb_buffer_addr(char *array, char *corb_buffer_addr, unsigned int tlo)
 {
 	unsigned int i;
-
+	printf("CORB buffer Address:");
 	for(i = 0; array[i + (tlo + 48)] != ','; i++) {
 		corb_buffer_addr[i] = array[i + (tlo + 48)];
 		printf("%c", corb_buffer_addr[i]);
