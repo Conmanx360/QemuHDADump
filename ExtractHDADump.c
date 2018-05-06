@@ -13,7 +13,7 @@ int main(int argc, char **argv)
 	unsigned long rirb_word;
 	int i, y, fd;
 	char filename[256][16];
-	char filename_sorted[256][16];
+	char filename_sorted[256][128];
 	unsigned int number_of_frames = 0;
 	unsigned int array_size = 0;
 	unsigned int found = 0;	
@@ -23,16 +23,15 @@ int main(int argc, char **argv)
 	DIR *frame_directory;
 	struct dirent *frame_file;
 	char frame_no_str[2];
-	char temp[5];
-	char frame[5] = "frame";
-	char file_no_temp[16];
-	frame[5] = ' ';
-	temp[5] = ' ';
+	char temp[7];
+	char frame[7] = "frame \0";
+	char file_no_temp[128];
 
 	// Open the directory which the frame dumps are located in.
 	
 	if(argc != 2) {
 		printf("Usage: %s folder_containing_framedumps\n", argv[0]);
+		return 1;
 	}
 	else {
 		frame_directory = opendir(argv[1]);
@@ -43,9 +42,10 @@ int main(int argc, char **argv)
 
 	// Check that the filename is actually a frame.
 
+	i = 0;
 	while((frame_file = readdir(frame_directory)) != NULL) {
 		memcpy(temp, &frame_file->d_name[0], 5);
-		if(strcmp(frame, temp) == 0) { 
+		if((strncmp(frame, temp, 5) == 0) && (strlen(frame_file->d_name) == 7)) { 
 			strcpy(filename[i], frame_file->d_name);
 			i++;
 		}
