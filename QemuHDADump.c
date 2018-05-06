@@ -9,13 +9,15 @@
 
 
 #define MAXLINE 128
-#define REGION_ZERO 1
-#define REGION_TWO  2
+#define CORB_BUFF_SIZE 12
+#define REGION_ZERO 0
+#define BAR_REGION_OFFSET 40
+#define BAR_ADDRESS_OFFSET 44
 
 void get_corb_buffer_addr(char *array, char *corb_buffer_addr, unsigned int tlo)
 {
 	unsigned int i;
-
+	printf("CORB buffer Address:");
 	for(i = 0; array[i + (tlo + 48)] != ','; i++) {
 		corb_buffer_addr[i] = array[i + (tlo + 48)];
 		printf("%c", corb_buffer_addr[i]);
@@ -27,17 +29,7 @@ void get_corb_buffer_addr(char *array, char *corb_buffer_addr, unsigned int tlo)
 
 unsigned int regionCheck(char *array, unsigned int tlo)
 {
-	switch(array[tlo + 40]) {
-	case '0':
-		return 1;
-	case '2':
-		return 2;
-	case '4':
-		return 3;
-	default:
- 		printf("char region: %c \n", array[tlo + 40]);
-		return 0;
-	}
+	return array[tlo + 40];
 
 }
 
@@ -85,7 +77,7 @@ int getLine(char *array)
 }
 
 
-void dumpMem(char *array, unsigned short framenumber, int fd)
+void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
 {
 	int i;
 	// int file = fd;
@@ -98,6 +90,7 @@ void dumpMem(char *array, unsigned short framenumber, int fd)
 	char pmemsave_part1[] = "pmemsave ";
 	char pmemsave_part2[] = " 0x1000 ";
 	char frame[] = "frame";
+	char final[] = "exit_dump";
 	char frameChar[] = "00";
 
         if (array[0] == '\0')
@@ -119,18 +112,24 @@ void dumpMem(char *array, unsigned short framenumber, int fd)
 		ioctl(fd, TIOCSTI, pmemsave_part2+i);
 	}
 
-	for(i = 0; frame[i]; i++) {
-		ioctl(fd, TIOCSTI, frame+i);
-	}
+	if(is_final) {
+		for(i = 0; final[i]; i++) {
+			ioctl(fd, TIOCSTI, frame+i);
+		}
+	} else {
+		for(i = 0; frame[i]; i++) {
+			ioctl(fd, TIOCSTI, frame+i);
+		}
 
-	digit_one = (frameno % 10);
-	digit_two = (frameno / 10) % 10;
+		digit_one = (frameno % 10);
+		digit_two = (frameno / 10) % 10;
 
-	frameChar[1] = '0' + digit_one;
-	frameChar[0] = '0' + digit_two;
+		frameChar[1] = '0' + digit_one;
+		frameChar[0] = '0' + digit_two;
 
-	for(i = 0; frameChar[i]; i++) {
-		ioctl(fd, TIOCSTI, frameChar+i);
+		for(i = 0; frameChar[i]; i++) {
+			ioctl(fd, TIOCSTI, frameChar+i);
+		}
 	}
 
 	ioctl(fd, TIOCSTI, nl);
@@ -178,9 +177,17 @@ int main(int argc, char *argv[])
 
 		switch_check = regionCheck(trace_line, tlo);
 
+		/* Check which PCI BAR region it is */
 		switch(switch_check) {
-		case 1:
+		/* this is the HDA register region */
+		case '0':
 			switch(trace_line[tlo + 44]) {
+			case '2':
+				if(trace_line[tlo + 45] == '0') {
+					if(trace_line[tlo + 50] == '4' && total_verbs > 20)
+						dumpMem(corb_buffer_location, framenumber, fd, 1);
+				}
+				break;
 			case '4':
 				switch(trace_line[tlo + 45]) {
 				case '0':
@@ -191,7 +198,7 @@ int main(int argc, char *argv[])
 					total_verbs += 4;
 					printf("0x%04x \n", total_verbs);
 					if(trace_line[tlo + 50] == 'f' && trace_line[tlo + 51] == 'f') {
-						dumpMem(corb_buffer_location, framenumber, fd);
+						dumpMem(corb_buffer_location, framenumber, fd, 0);
 						framenumber++;
 					}
 					break;
@@ -216,29 +223,15 @@ int main(int argc, char *argv[])
 			}
 
 			break;
-		case 2:
-			printf("Current verb 0x%04x Region2+", total_verbs);
-			i = 0;
-			while(trace_line[i + (tlo + 42)] != ')') {
-				printf("%c", trace_line[i + (tlo + 42)]);
-				i++;
-			}
-			putchar('\n');
-
-			break;
-
-		case 3:
-			printf("Current verb 0x%04x Region4+", total_verbs);
-			i = 0;
-			while(trace_line[i + (tlo + 42)] != ')') {
-				printf("%c", trace_line[i + (tlo + 42)]);
-				i++;
-			}
-			putchar('\n');
-
-			break;
 		default:
-			printf("switch check %u\n", switch_check);
+			printf("Current verb 0x%04x Region%c+", total_verbs, switch_check);
+			i = 0;
+			while(trace_line[i + (tlo + 42)] != ')') {
+				printf("%c", trace_line[i + (tlo + 42)]);
+				i++;
+			}
+			putchar('\n');
+
 			break;
 		}
 		memset(&trace_line[0], 0, sizeof(trace_line));
