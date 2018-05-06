@@ -50,33 +50,6 @@ int traceLineOffset(char *array)
 	return i;
 }
 
-/*
- * Get the trace line.
- */
-//Should you base it on paranthese ')' instead of newline?
-//Would save you from problems when newline doesn't occur...
-int getLine(char *array)
-{
-	int c;
-	int i = 0;
-
-	memset(&array[0], 0, MAXLINE);
-	while(((i+1) < MAXLINE) && ((c=getchar()) != ')') && (c != '\n') &&
-				(c != '\r') && (c!=EOF)) {
-		array[i] = c;
-		i++;
-	}
-	if (c==EOF) {
-		array[i] = 0;
-	  	return 0;
-	} else {
-		array[i] = c; // should be ')'
-	 	array[i+1] = 0;
-	}
-	return 1;
-}
-
-
 void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
 {
 	int i;
@@ -84,14 +57,14 @@ void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
 	unsigned short frameno = framenumber;
 	unsigned int digit_one, digit_two;
 
-	char nl[] = "\n";
+	char *nl = "\n";
 	// char stop[] = "stop\n";
 	// char cont[] = "cont\n";
-	char pmemsave_part1[] = "pmemsave ";
-	char pmemsave_part2[] = " 0x1000 ";
-	char frame[] = "frame";
-	char final[] = "exit_dump";
-	char frameChar[] = "00";
+	char *pmemsave_part1 = "pmemsave ";
+	char *pmemsave_part2 = " 0x1000 ";
+	char *frame = "frame";
+	char *final = "exit_dump";
+	char frameChar[] = "00\0";
 
         if (array[0] == '\0')
 	{
@@ -114,7 +87,7 @@ void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
 
 	if(is_final) {
 		for(i = 0; final[i]; i++) {
-			ioctl(fd, TIOCSTI, frame+i);
+			ioctl(fd, TIOCSTI, final+i);
 		}
 	} else {
 		for(i = 0; frame[i]; i++) {
@@ -140,7 +113,8 @@ void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
 int main(int argc, char *argv[])
 {
 	char corb_buffer_location[16];
-	char trace_line[MAXLINE];
+	size_t trace_line_size = MAXLINE;
+	char *trace_line = NULL;
 	unsigned short framenumber = 0;
 	int devno = 1;
 	int fd;
@@ -166,9 +140,10 @@ int main(int argc, char *argv[])
 		int tlo = 0;  // trace line offset, due to PID
 		unsigned short switch_check = 0;
 
-		memset(trace_line, 0, sizeof(trace_line));
+		if (trace_line)
+			memset(trace_line, 0, trace_line_size);
 		fflush(stdout);
-		if (!getLine(trace_line))
+		if (getline(&trace_line, &trace_line_size, stdin) == -1)
 		  break;
 		tlo = traceLineOffset(trace_line);
 		if (tlo < 0)
@@ -224,7 +199,7 @@ int main(int argc, char *argv[])
 
 			break;
 		default:
-			printf("Current verb 0x%04x Region%c+", total_verbs, switch_check);
+			printf("Current verb 0x%04x tlo = %i Region%c+", total_verbs, tlo, switch_check);
 			i = 0;
 			while(trace_line[i + (tlo + 42)] != ')') {
 				printf("%c", trace_line[i + (tlo + 42)]);
@@ -234,9 +209,12 @@ int main(int argc, char *argv[])
 
 			break;
 		}
-		memset(&trace_line[0], 0, sizeof(trace_line));
+		if (trace_line)
+			memset(trace_line, 0, trace_line_size);
 		fflush(stdout);
 	}
+	if (trace_line)
+	  free(trace_line);
 	return 0;
 }
 
