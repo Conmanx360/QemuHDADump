@@ -1,6 +1,8 @@
 # QemuHDADump
 Dumps HDA verbs from the CORB buffer of a virtual machine. Useful for reverse engineering drivers on different operating systems.
 
+If you want a more easy to follow guide, check the wiki. Specfically, this [page](https://github.com/Conmanx360/QemuHDADump/wiki/Setup-and-usage-of-the-program)
+
 I thought up the idea, and could only find information on anyone else doing something similar here: https://hakzsam.wordpress.com/2015/02/21/471/ . This really helped me realize it was possible. As a disclaimer, I am pretty new to programming. This probably isn't the prettiest program ever, but it does work.
 
   This program is based off of the trace ability of QEMU. It uses the vfio_region_write trace in order to see what is being written to the MMIO pci regions, in this case the hda-verbs in the CORB buffer.
