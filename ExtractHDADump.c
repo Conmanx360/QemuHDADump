@@ -85,10 +85,92 @@ static void get_frame_cnt_from_dir(hda_dump_data *data)
 	data->frame_cnt = highest_frame + 1;
 }
 
+static uint32_t find_frame_file_str_from_dir(hda_dump_data *data)
+{
+	struct dirent *tmp_dirent;
+	char *file_name, *end_ptr;
+	DIR *frame_dir;
+	uint32_t tmp;
+
+	frame_dir = opendir(data->dir_str);
+	if (!frame_dir) {
+		printf("Directory open failed!\n");
+		return 1;
+	}
+
+	while ((tmp_dirent = readdir(frame_dir))) {
+		file_name = tmp_dirent->d_name;
+		if (strncmp("frame", file_name, 5))
+			continue;
+
+		tmp = strtol(file_name + 5, &end_ptr, 10);
+		if (*end_ptr != '\0')
+			continue;
+
+		if (tmp == data->cur_frame) {
+			data->cur_file_str = strdup(file_name);
+			break;
+		}
+	}
+
+	closedir(frame_dir);
+
+	if (!data->cur_file_str)
+		return 1;
+
+	return 0;
+}
+
+static uint32_t write_file_to_buffer(hda_dump_data *data)
+{
+	uint32_t words_read;
+	FILE *tmp;
+
+	if (find_frame_file_str_from_dir(data)) {
+		printf("Failed to find frame %d, aborting.\n", data->cur_frame);
+		return 1;
+	}
+
+	sprintf(data->file_name, "%s/%s", data->dir_str, data->cur_file_str);
+	tmp = fopen(data->file_name, "r+");
+
+	free(data->cur_file_str);
+
+	if (!tmp) {
+		printf("Failed to open frame file!\n");
+		return 1;
+	}
+
+	words_read = fread(data->corb_buf + (data->cur_frame * 0x100),
+			sizeof(*data->corb_buf), 0x100, tmp);
+	if (words_read != 0x100) {
+		printf("Incorrect amount of data read!\n");
+		fclose(tmp);
+		return 1;
+	}
+
+	/* Reset the file to the beginning, then get the RIRB offset. */
+	rewind(tmp);
+	fseek(tmp, 0x800, 0);
+
+	words_read = fread(data->rirb_buf + (data->cur_frame * 0x100),
+			sizeof(*data->rirb_buf), 0x100, tmp);
+	if (words_read != 0x100) {
+		printf("Incorrect amount of data read!\n");
+		fclose(tmp);
+		return 1;
+	}
+
+	fclose(tmp);
+
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	hda_dump_data data;
 	int ret = 0;
+	uint32_t i;
 
 	/* Open the directory which the frame dumps are located in.*/
 	if (argc < 2) {
@@ -110,6 +192,15 @@ int main(int argc, char **argv)
 	if (allocate_buffers(&data)) {
 		ret = -1;
 		goto exit;
+	}
+
+	for (i = 0; i < data.frame_cnt; i++) {
+		if (write_file_to_buffer(&data)) {
+			ret = -1;
+			goto exit;
+		}
+
+		data.cur_frame++;
 	}
 
 exit:
