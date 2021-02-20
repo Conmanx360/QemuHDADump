@@ -24,6 +24,33 @@ typedef struct {
 	uint32_t cur_frame;
 } hda_dump_data;
 
+static uint32_t allocate_buffers(hda_dump_data *data)
+{
+	/*
+	 * Allocate a buffer to store the frame file name string along with
+	 * the directory string.
+	 */
+	data->file_name = calloc(strlen(data->dir_str) + data->file_name_len + 1, sizeof(char));
+	if (!data->file_name) {
+		printf("Failed to allocate memory for filename!\n");
+		return 1;
+	}
+
+	data->corb_buf = calloc(data->frame_cnt * 0x100, sizeof(*data->corb_buf));
+	if (!data->corb_buf) {
+		printf("Failed to allocate corb buffer!\n");
+		return 1;
+	}
+
+	data->rirb_buf = calloc(data->frame_cnt * 0x100, sizeof(*data->rirb_buf));
+	if (!data->rirb_buf) {
+		printf("Failed to allocate rirb buffer!\n");
+		return 1;
+	}
+
+	return 0;
+}
+
 static void get_frame_cnt_from_dir(hda_dump_data *data)
 {
 	uint32_t highest_frame, tmp;
@@ -76,6 +103,11 @@ int main(int argc, char **argv)
 
 	if (!data.frame_cnt) {
 		printf("Failed to find frame files in directory!\n");
+		ret = -1;
+		goto exit;
+	}
+
+	if (allocate_buffers(&data)) {
 		ret = -1;
 		goto exit;
 	}
