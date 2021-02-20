@@ -6,13 +6,32 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <stdint.h>
 
 
-#define MAXLINE 128
+#define DEFAULT_BUF_SIZE 0x100
 #define CORB_BUFF_SIZE 12
 #define REGION_ZERO 0
 #define BAR_REGION_OFFSET 40
 #define BAR_ADDRESS_OFFSET 44
+
+typedef struct {
+	int fd;
+
+	char *buf;
+	size_t buf_size;
+
+	uint32_t line_offset;
+
+	uint64_t corb_buf_addr;
+	uint32_t bar_region;
+	uint32_t bar_addr;
+	uint32_t bar_data;
+	uint32_t bar_bytes;
+
+	uint32_t corb_cnt;
+	uint32_t frame_cnt;
+} hda_dump_data;
 
 void get_corb_buffer_addr(char *array, char *corb_buffer_addr, unsigned int tlo)
 {
@@ -113,85 +132,84 @@ void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
 int main(int argc, char *argv[])
 {
 	char corb_buffer_location[16];
-	size_t trace_line_size = MAXLINE;
-	char *trace_line = NULL;
 	unsigned short framenumber = 0;
+	hda_dump_data data;
 	int devno = 1;
-	int fd;
 	unsigned int i = 0;
 	unsigned int total_verbs = 0;
-//	char cont[] = "cont\n";
 
         if (argc <= devno)
 		return 1;
 
-	fd = open(argv[devno], O_RDWR);
+	memset(&data, 0, sizeof(data));
 
-        if (fd < 0)
+	data.fd = open(argv[devno], O_RDWR);
+
+        if (data.fd < 0)
 		return 2;
 
-/*	for(i = 0; cont[i]; i++) {
-		ioctl(fd, TIOCSTI, cont+i);
-	}
-*/
+	data.buf_size = DEFAULT_BUF_SIZE;
+	data.buf = calloc(data.buf_size, sizeof(*data.buf));
+
         memset(corb_buffer_location, 0, sizeof(corb_buffer_location));
 
 	while(1) {
 		int tlo = 0;  // trace line offset, due to PID
 		unsigned short switch_check = 0;
 
-		if (trace_line)
-			memset(trace_line, 0, trace_line_size);
+		if (data.buf)
+			memset(data.buf, 0, data.buf_size);
 		fflush(stdout);
-		if (getline(&trace_line, &trace_line_size, stdin) == -1)
+		if (getline(&data.buf, &data.buf_size, stdin) == -1)
 		  break;
-		tlo = traceLineOffset(trace_line);
+
+		tlo = traceLineOffset(data.buf);
 		if (tlo < 0)
 		  	// ignore non-trace lines
 			continue;
 
-		switch_check = regionCheck(trace_line, tlo);
+		switch_check = regionCheck(data.buf, tlo);
 
 		/* Check which PCI BAR region it is */
 		switch(switch_check) {
 		/* this is the HDA register region */
 		case '0':
-			switch(trace_line[tlo + 44]) {
+			switch (data.buf[tlo + 44]) {
 			case '2':
-				if(trace_line[tlo + 45] == '0') {
-					if(trace_line[tlo + 50] == '4' && total_verbs > 20)
-						dumpMem(corb_buffer_location, framenumber, fd, 1);
+				if (data.buf[tlo + 45] == '0') {
+					if (data.buf[tlo + 50] == '4' && total_verbs > 20)
+						dumpMem(corb_buffer_location, framenumber, data.fd, 1);
 				}
 				break;
 			case '4':
-				switch(trace_line[tlo + 45]) {
+				switch (data.buf[tlo + 45]) {
 				case '0':
         				memset(corb_buffer_location, 0, sizeof(corb_buffer_location));
-					get_corb_buffer_addr(trace_line, corb_buffer_location, tlo);
+					get_corb_buffer_addr(data.buf, corb_buffer_location, tlo);
 					break;
 				case '8':
 					total_verbs += 4;
 					printf("0x%04x \n", total_verbs);
-					if(trace_line[tlo + 50] == 'f' && trace_line[tlo + 51] == 'f') {
-						dumpMem(corb_buffer_location, framenumber, fd, 0);
+					if (data.buf[tlo + 50] == 'f' && data.buf[tlo + 51] == 'f') {
+						dumpMem(corb_buffer_location, framenumber, data.fd, 0);
 						framenumber++;
 					}
 					break;
 				}
 				break;
 			case '8':
-				if(trace_line[tlo + 45] != ',') {
+				if (data.buf[tlo + 45] != ',') {
 					printf("Current verb 0x%04x Region0+", total_verbs);
-					for(i = 0; trace_line[i + (tlo + 42)] != ')'; i++) {
-						printf("%c", trace_line[i + (tlo + 42)]);
+					for (i = 0; data.buf[i + (tlo + 42)] != ')'; i++) {
+						printf("%c", data.buf[i + (tlo + 42)]);
 					}
 				putchar('\n');
 				}
 				break;
 			case '1':
 				printf("Current verb 0x%04x Region0+", total_verbs);
-				for(i = 0; trace_line[i + (tlo + 42)] != ')'; i++) {
-					printf("%c", trace_line[i + (tlo + 42)]);
+				for (i = 0; data.buf[i + (tlo + 42)] != ')'; i++) {
+					printf("%c", data.buf[i + (tlo + 42)]);
 				}
 				putchar('\n');
 				break;
@@ -201,22 +219,23 @@ int main(int argc, char *argv[])
 		default:
 			printf("Current verb 0x%04x tlo = %i Region%c+", total_verbs, tlo, switch_check);
 			i = 0;
-			while(trace_line[i + (tlo + 42)] != ')') {
-				printf("%c", trace_line[i + (tlo + 42)]);
+			while (data.buf[i + (tlo + 42)] != ')') {
+				printf("%c", data.buf[i + (tlo + 42)]);
 				i++;
 			}
 			putchar('\n');
 
 			break;
 		}
-		if (trace_line)
-			memset(trace_line, 0, trace_line_size);
+
+		if (data.buf)
+			memset(data.buf, 0, data.buf_size);
+
 		fflush(stdout);
 	}
-	if (trace_line)
-	  free(trace_line);
+
+	if (data.buf)
+		free(data.buf);
+
 	return 0;
 }
-
-
-
