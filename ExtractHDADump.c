@@ -166,6 +166,31 @@ static uint32_t write_file_to_buffer(hda_dump_data *data)
 	return 0;
 }
 
+static uint32_t write_buffer_to_file(hda_dump_data *data)
+{
+	FILE *tmp;
+
+	tmp = fopen("all-corb-frames", "w+");
+	if (!tmp) {
+		printf("Failed to open all-corb-frames file!\n");
+		return 1;
+	}
+
+	fwrite(data->corb_buf, sizeof(*data->corb_buf), data->frame_cnt * 0x100, tmp);
+	fclose(tmp);
+
+	tmp = fopen("all-rirb-frames", "w+");
+	if (!tmp) {
+		printf("Failed to open all-rirb-frames file!\n");
+		return 1;
+	}
+
+	fwrite(data->rirb_buf, sizeof(*data->rirb_buf), data->frame_cnt * 0x100, tmp);
+	fclose(tmp);
+
+	return 0;
+}
+
 int main(int argc, char **argv)
 {
 	hda_dump_data data;
@@ -202,6 +227,9 @@ int main(int argc, char **argv)
 
 		data.cur_frame++;
 	}
+
+	printf("frame_cnt %d.\n", data.frame_cnt);
+	write_buffer_to_file(&data);
 
 exit:
 	if (data.file_name)
