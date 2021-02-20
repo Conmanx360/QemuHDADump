@@ -6,127 +6,89 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdint.h>
 
-int main(int argc, char **argv) 
+typedef struct {
+	char *dir_str;
+	uint32_t frame_cnt;
+
+	uint64_t *rirb_buf;
+	uint32_t *corb_buf;
+
+	char *file_name;
+	char *cur_file_str;
+	uint32_t file_name_len;
+
+	FILE *frame_file;
+	uint32_t cur_offset;
+	uint32_t cur_frame;
+} hda_dump_data;
+
+static void get_frame_cnt_from_dir(hda_dump_data *data)
 {
-	unsigned int corb_word;
-	unsigned long rirb_word;
-	int i, y, fd;
-	char filename[256][16];
-	char filename_sorted[256][128];
-	unsigned int number_of_frames = 0;
-	unsigned int array_size = 0;
-	unsigned int found = 0;	
-	unsigned int current_address = 0;	
-	unsigned int print_address = 0;
+	uint32_t highest_frame, tmp;
+	struct dirent *tmp_dirent;
+	char *file_name, *end_ptr;
+	DIR *frame_dir;
 
-	DIR *frame_directory;
-	struct dirent *frame_file;
-	char frame_no_str[2];
-	char temp[7];
-	char frame[7] = "frame \0";
-	char file_no_temp[128];
+	frame_dir = opendir(data->dir_str);
+	if (!frame_dir) {
+		printf("Directory open failed!\n");
+		return;
+	}
 
-	// Open the directory which the frame dumps are located in.
-	
-	if(argc != 2) {
+	highest_frame = 0;
+	while ((tmp_dirent = readdir(frame_dir))) {
+		file_name = tmp_dirent->d_name;
+		if (strncmp("frame", file_name, 5))
+			continue;
+
+		tmp = strtol(file_name + 5, &end_ptr, 10);
+		if (*end_ptr != '\0')
+			continue;
+
+		if (tmp > highest_frame) {
+			data->file_name_len = strlen(file_name);
+			highest_frame = tmp;
+		}
+	}
+
+	closedir(frame_dir);
+
+	data->frame_cnt = highest_frame + 1;
+}
+
+int main(int argc, char **argv)
+{
+	hda_dump_data data;
+	int ret = 0;
+
+	/* Open the directory which the frame dumps are located in.*/
+	if (argc < 2) {
 		printf("Usage: %s folder_containing_framedumps\n", argv[0]);
-		return 1;
-	}
-	else {
-		frame_directory = opendir(argv[1]);
-		if(frame_directory == NULL) {
-			printf("Directory open failed!\n");
-		}
+		return -1;
 	}
 
-	// Check that the filename is actually a frame.
+	memset(&data, 0, sizeof(data));
 
-	i = 0;
-	while((frame_file = readdir(frame_directory)) != NULL) {
-		memcpy(temp, &frame_file->d_name[0], 5);
-		if((strncmp(frame, temp, 5) == 0) && (strlen(frame_file->d_name) == 7)) { 
-			strcpy(filename[i], frame_file->d_name);
-			i++;
-		}
-	}	
+	data.dir_str = argv[1];
+	get_frame_cnt_from_dir(&data);
 
-	number_of_frames = i;
-
-	// Sort the frames in numerical order.
-
-	for(i = 0; i < number_of_frames; i++) {
-		for(y = 0; (y < number_of_frames) && (found == 0); y++) {
-			strcpy(file_no_temp, filename[y]);
-			memcpy(frame_no_str, &file_no_temp[5], 2);
-
-			if(atol(frame_no_str) == i) {
-				strcpy(filename_sorted[i], filename[y]);
-				found = 1;
-			}	
-		}
-		found = 0;
+	if (!data.frame_cnt) {
+		printf("Failed to find frame files in directory!\n");
+		ret = -1;
+		goto exit;
 	}
 
-	// Allocate enough space to store the CORB verb data and RIRB response data.
-//	printf("Number of frames * 256 = %i \n", (number_of_frames * 256));
+exit:
+	if (data.file_name)
+		free(data.file_name);
 
-	array_size = (number_of_frames * 256) * 4;
+	if (data.corb_buf)
+		free(data.corb_buf);
 
-	unsigned int *corb = calloc(array_size, sizeof(unsigned int));
-	unsigned long *rirb = calloc(array_size, sizeof(unsigned long));
-	
+	if (data.rirb_buf)
+		free(data.rirb_buf);
 
-//	for(i = 0; i < number_of_frames; i++) {
-//		printf("%s \n", filename_sorted[i]);
-//	}
-	
-
-	for(i = 0; i < number_of_frames; i++) {
-		fd = open(filename_sorted[i], O_RDONLY);
-		if(fd == -1) {
-			printf("File open failed! \n");
-		}		
-
-		for(y = 0; y < 256; y++) {
-			read(fd, &corb_word, sizeof(unsigned int));
-			corb[current_address + y] = corb_word;
-//			printf("CORB: 0x%08x \n", corb[current_address + y]);
-		}
-
-		lseek(fd, 0x800, SEEK_SET);		
-
-		for(y = 0; y < 256; y++) {
-			read(fd, &rirb_word, sizeof(unsigned long));
-			rirb[current_address + y] = rirb_word;
-//			printf("RIRB: 0x%lu \n", rirb[current_address + y]);
-		}
-		close(fd);
-		
-		current_address += 256;		
-			
-	}
-	
-//	printf("0x%08x: ", print_address);
-//	for(i; i < number_of_frames * 256; i += 4) {
-//		for(y = 0; y < 4; y++) {
-//			printf("0x%08x ", corb[i + y]);
-//		}
-//		print_address += 16;
-//		putchar('\n');
-//		printf("0x%08x: ", print_address);
-//	}
-
-	int fd_corb = creat("allCORBframes", 0644);
-	int fd_rirb = creat("allRIRBframes", 0644);	
-
-	write(fd_corb, corb, array_size);
-	write(fd_rirb, rirb, (array_size * 2));
-	
-	free(corb);
-	free(rirb);
-
-	close(fd_corb);
-	close(fd_rirb);
-
+	return ret;
 }
