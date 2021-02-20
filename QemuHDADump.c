@@ -97,42 +97,6 @@ static void extract_data_from_qemu_trace_line(hda_dump_data *data)
 	data->bar_bytes = strtol(cur_char, NULL, 10);
 }
 
-void get_corb_buffer_addr(char *array, char *corb_buffer_addr, unsigned int tlo)
-{
-	unsigned int i;
-	printf("CORB buffer Address:");
-	for(i = 0; array[i + (tlo + 48)] != ','; i++) {
-		corb_buffer_addr[i] = array[i + (tlo + 48)];
-		printf("%c", corb_buffer_addr[i]);
-	}
-	putchar('\n');
-
-	return;
-}
-
-unsigned int regionCheck(char *array, unsigned int tlo)
-{
-	return array[tlo + 40];
-
-}
-
-/*
- * Get the character offset from the PID and the time of the trace.
- */
-int traceLineOffset(char *array)
-{
-	int i, j;
-	char match_chars[] = { '@', '.', ':', 0 };
-	i = j = 0;
-	do {
-	  for(;array[i] && array[i] != match_chars[j]; i++);
-	  if (array[i] != match_chars[j])
-	    return -1;
-	  ++j;
-	} while(match_chars[j] != 0);
-	return i;
-}
-
 void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
 {
 	int i;
@@ -160,7 +124,7 @@ void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
 		ioctl(fd, TIOCSTI, pmemsave_part1+i);
 	}
 
-	for(i = 0; i < 10 && array[i]; i++) {
+	for(i = 0; i < 18 && array[i]; i++) {
 		ioctl(fd, TIOCSTI, array+i);
 	}
 
@@ -193,14 +157,62 @@ void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
 	return;
 }
 
+static void handle_hda_region_write(hda_dump_data *data)
+{
+	uint64_t tmp;
+	char buf[0x100];
+
+	switch (data->bar_addr) {
+	case 0x20:
+		if ((data->bar_data & 0x40000000) && (data->corb_cnt > 20)) {
+			sprintf(buf, "0x%lx", data->corb_buf_addr);
+			dumpMem(buf, data->frame_cnt, data->fd, 1);
+		}
+
+		break;
+
+	case 0x40:
+		tmp = data->bar_data;
+		data->corb_buf_addr |= data->bar_data;
+
+		printf("CORB buffer addr 0x%016lx.\n", data->corb_buf_addr);
+		break;
+
+	case 0x44:
+		tmp = data->bar_data;
+		tmp <<= 32;
+		data->corb_buf_addr |= tmp;
+
+		printf("CORB buffer addr 0x%016lx.\n", data->corb_buf_addr);
+		break;
+
+	case 0x48:
+		if (data->bar_data == 0xff) {
+			sprintf(buf, "0x%lx", data->corb_buf_addr);
+			dumpMem(buf, data->frame_cnt, data->fd, 0);
+			printf("Call memory dump, frame_cnt %d.\n", data->frame_cnt++);
+		}
+
+		if (!data->corb_cnt)
+			data->corb_cnt = data->bar_data & 0xff;
+		else
+			data->corb_cnt++;
+
+		printf("CORB dump addr 0x%08x.\n", data->corb_cnt * 4);
+
+		break;
+	default:
+		printf("bar_region %d, addr 0x%03x, data 0x%08x, bytes %d.\n", data->bar_region, data->bar_addr,
+				data->bar_data, data->bar_bytes);
+
+		break;
+	}
+}
+
 int main(int argc, char *argv[])
 {
-	char corb_buffer_location[16];
-	unsigned short framenumber = 0;
 	hda_dump_data data;
 	int devno = 1;
-	unsigned int i = 0;
-	unsigned int total_verbs = 0;
 
         if (argc <= devno)
 		return 1;
@@ -215,92 +227,33 @@ int main(int argc, char *argv[])
 	data.buf_size = DEFAULT_BUF_SIZE;
 	data.buf = calloc(data.buf_size, sizeof(*data.buf));
 
-        memset(corb_buffer_location, 0, sizeof(corb_buffer_location));
-
-	while(1) {
-		int tlo = 0;  // trace line offset, due to PID
-		unsigned short switch_check = 0;
-
-		if (data.buf)
-			memset(data.buf, 0, data.buf_size);
-		fflush(stdout);
+	while (1) {
+		memset(data.buf, 0, data.buf_size);
 		if (getline(&data.buf, &data.buf_size, stdin) == -1)
-		  break;
+			break;
 
 		extract_data_from_qemu_trace_line(&data);
-		tlo = traceLineOffset(data.buf);
-		if (tlo < 0)
-		  	// ignore non-trace lines
-			continue;
 
-		switch_check = regionCheck(data.buf, tlo);
-
-		/* Check which PCI BAR region it is */
-		switch(switch_check) {
-		/* this is the HDA register region */
-		case '0':
-			switch (data.buf[tlo + 44]) {
-			case '2':
-				if (data.buf[tlo + 45] == '0') {
-					if (data.buf[tlo + 50] == '4' && total_verbs > 20)
-						dumpMem(corb_buffer_location, framenumber, data.fd, 1);
-				}
-				break;
-			case '4':
-				switch (data.buf[tlo + 45]) {
-				case '0':
-        				memset(corb_buffer_location, 0, sizeof(corb_buffer_location));
-					get_corb_buffer_addr(data.buf, corb_buffer_location, tlo);
-					break;
-				case '8':
-					total_verbs += 4;
-					printf("0x%04x \n", total_verbs);
-					if (data.buf[tlo + 50] == 'f' && data.buf[tlo + 51] == 'f') {
-						dumpMem(corb_buffer_location, framenumber, data.fd, 0);
-						framenumber++;
-					}
-					break;
-				}
-				break;
-			case '8':
-				if (data.buf[tlo + 45] != ',') {
-					printf("Current verb 0x%04x Region0+", total_verbs);
-					for (i = 0; data.buf[i + (tlo + 42)] != ')'; i++) {
-						printf("%c", data.buf[i + (tlo + 42)]);
-					}
-				putchar('\n');
-				}
-				break;
-			case '1':
-				printf("Current verb 0x%04x Region0+", total_verbs);
-				for (i = 0; data.buf[i + (tlo + 42)] != ')'; i++) {
-					printf("%c", data.buf[i + (tlo + 42)]);
-				}
-				putchar('\n');
-				break;
-			}
-
+		switch (data.bar_region) {
+		case 0:
+			handle_hda_region_write(&data);
 			break;
-		default:
-			printf("Current verb 0x%04x tlo = %i Region%c+", total_verbs, tlo, switch_check);
-			i = 0;
-			while (data.buf[i + (tlo + 42)] != ')') {
-				printf("%c", data.buf[i + (tlo + 42)]);
-				i++;
-			}
-			putchar('\n');
 
+		default:
+			printf("bar_region %d, addr 0x%03x, data 0x%08x, bytes %d.\n",
+					data.bar_region, data.bar_addr, data.bar_data,
+					data.bar_bytes);
 			break;
 		}
-
-		if (data.buf)
-			memset(data.buf, 0, data.buf_size);
 
 		fflush(stdout);
 	}
 
 	if (data.buf)
 		free(data.buf);
+
+	if (data.fd)
+		close(data.fd);
 
 	return 0;
 }
