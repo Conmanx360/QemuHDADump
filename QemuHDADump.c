@@ -14,6 +14,8 @@
 #define REGION_ZERO 0
 #define BAR_REGION_OFFSET 40
 #define BAR_ADDRESS_OFFSET 44
+#define ARRAY_SIZE(array) \
+    (sizeof(array) / sizeof(*array))
 
 typedef struct {
 	int fd;
@@ -32,6 +34,68 @@ typedef struct {
 	uint32_t corb_cnt;
 	uint32_t frame_cnt;
 } hda_dump_data;
+
+static const char time_chk_chars[4] = { '@', '.', ':', '(' };
+
+static void get_trace_line_offset(hda_dump_data *data)
+{
+	uint32_t i, match_cnt;
+
+	for (i = match_cnt = 0; i < strlen(data->buf); i++) {
+		if (data->buf[i] == time_chk_chars[match_cnt])
+			match_cnt++;
+
+		if (match_cnt == ARRAY_SIZE(time_chk_chars)) {
+			data->line_offset = i;
+			break;
+		}
+	}
+
+	/* Now, find the end of the PCI bus ID and add that to the offset. */
+	if (data->line_offset) {
+		match_cnt = 0;
+		for (i = data->line_offset; i < strlen(data->buf); i++) {
+			if (data->buf[i] == ':')
+				match_cnt++;
+
+			if (match_cnt == 3) {
+				data->line_offset = ++i;
+				break;
+			}
+		}
+	}
+}
+
+static void extract_data_from_qemu_trace_line(hda_dump_data *data)
+{
+	char *cur_char, *val_end;
+
+	if (!data->line_offset)
+		get_trace_line_offset(data);
+
+	if (!data->line_offset)
+		return;
+
+	data->bar_region = data->bar_addr = data->bar_data = data->bar_bytes = 0;
+	cur_char = data->buf + data->line_offset + 6;
+	data->bar_region = (*cur_char) - '0';
+	cur_char++;
+
+	/* Now get bar address. */
+	data->bar_addr = strtol(cur_char, &val_end, 16);
+	cur_char = val_end + 1;
+	if (*val_end != ',')
+		return;
+
+	/* Now get data value. */
+	data->bar_data = strtol(cur_char, &val_end, 16);
+	cur_char = val_end + 1;
+	if (*val_end != ',')
+		return;
+
+	/* Now, get the byte length of the write. */
+	data->bar_bytes = strtol(cur_char, NULL, 10);
+}
 
 void get_corb_buffer_addr(char *array, char *corb_buffer_addr, unsigned int tlo)
 {
@@ -163,6 +227,7 @@ int main(int argc, char *argv[])
 		if (getline(&data.buf, &data.buf_size, stdin) == -1)
 		  break;
 
+		extract_data_from_qemu_trace_line(&data);
 		tlo = traceLineOffset(data.buf);
 		if (tlo < 0)
 		  	// ignore non-trace lines
