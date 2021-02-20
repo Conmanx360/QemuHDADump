@@ -97,77 +97,43 @@ static void extract_data_from_qemu_trace_line(hda_dump_data *data)
 	data->bar_bytes = strtol(cur_char, NULL, 10);
 }
 
-void dumpMem(char *array, unsigned short framenumber, int fd, int is_final)
+void dump_current_frame(hda_dump_data *data, int is_final)
 {
-	int i;
-	// int file = fd;
-	unsigned short frameno = framenumber;
-	unsigned int digit_one, digit_two;
+	const char *nl = "\n";
+	char buf[0x100];
+	uint32_t i;
 
-	char *nl = "\n";
-	// char stop[] = "stop\n";
-	// char cont[] = "cont\n";
-	char *pmemsave_part1 = "pmemsave ";
-	char *pmemsave_part2 = " 0x1000 ";
-	char *frame = "frame";
-	char *final = "exit_dump";
-	char frameChar[] = "00\0";
-
-        if (array[0] == '\0')
-	{
-	  printf("dumpMem entered... but the address is not set, skipping\n");
-	  return;
-        } else
-	  printf("dumpMem entered...\n");
-
-	for(i = 0; pmemsave_part1[i]; i++) {
-		ioctl(fd, TIOCSTI, pmemsave_part1+i);
+	if (!data->corb_buf_addr) {
+		printf("Buffer address not yet set, not dumping.\n");
+		return;
 	}
 
-	for(i = 0; i < 18 && array[i]; i++) {
-		ioctl(fd, TIOCSTI, array+i);
-	}
+	memset(buf, 0, sizeof(buf));
 
-	for(i = 0; pmemsave_part2[i]; i++) {
-		ioctl(fd, TIOCSTI, pmemsave_part2+i);
-	}
+	if (is_final)
+		sprintf(buf, "pmemsave 0x%lx 0x1000 exit_frame\n", data->corb_buf_addr);
+	else
+		sprintf(buf, "pmemsave 0x%lx 0x1000 frame%04d\n", data->corb_buf_addr, data->frame_cnt);
 
-	if(is_final) {
-		for(i = 0; final[i]; i++) {
-			ioctl(fd, TIOCSTI, final+i);
-		}
-	} else {
-		for(i = 0; frame[i]; i++) {
-			ioctl(fd, TIOCSTI, frame+i);
-		}
+	/*
+	 * The ioctl expects a const char *, and writes out character by
+	 * character, not by string, so that's how we'll have to write it out.
+	 */
+	for (i = 0; i < strlen(buf); i++)
+		ioctl(data->fd, TIOCSTI, (const char *)&buf[i]);
 
-		digit_one = (frameno % 10);
-		digit_two = (frameno / 10) % 10;
-
-		frameChar[1] = '0' + digit_one;
-		frameChar[0] = '0' + digit_two;
-
-		for(i = 0; frameChar[i]; i++) {
-			ioctl(fd, TIOCSTI, frameChar+i);
-		}
-	}
-
-	ioctl(fd, TIOCSTI, nl);
-
-	return;
+	/* Write out a final newline character. */
+	ioctl(data->fd, TIOCSTI, nl);
 }
 
 static void handle_hda_region_write(hda_dump_data *data)
 {
 	uint64_t tmp;
-	char buf[0x100];
 
 	switch (data->bar_addr) {
 	case 0x20:
-		if ((data->bar_data & 0x40000000) && (data->corb_cnt > 20)) {
-			sprintf(buf, "0x%lx", data->corb_buf_addr);
-			dumpMem(buf, data->frame_cnt, data->fd, 1);
-		}
+		if ((data->bar_data & 0x40000000) && (data->corb_cnt > 20))
+			dump_current_frame(data, 1);
 
 		break;
 
@@ -188,8 +154,7 @@ static void handle_hda_region_write(hda_dump_data *data)
 
 	case 0x48:
 		if (data->bar_data == 0xff) {
-			sprintf(buf, "0x%lx", data->corb_buf_addr);
-			dumpMem(buf, data->frame_cnt, data->fd, 0);
+			dump_current_frame(data, 0);
 			printf("Call memory dump, frame_cnt %d.\n", data->frame_cnt++);
 		}
 
