@@ -177,17 +177,19 @@ static void handle_hda_region_write(hda_dump_data *data)
 int main(int argc, char *argv[])
 {
 	hda_dump_data data;
-	int devno = 1;
-
-        if (argc <= devno)
-		return 1;
+	char *tty_str;
 
 	memset(&data, 0, sizeof(data));
 
-	data.fd = open(argv[devno], O_RDWR);
+	if (argc < 2)
+		tty_str = "/dev/tty";
+	else
+		tty_str = argv[1];
+
+	data.fd = open(tty_str, O_RDWR);
 
         if (data.fd < 0)
-		return 2;
+		return 1;
 
 	data.buf_size = DEFAULT_BUF_SIZE;
 	data.buf = calloc(data.buf_size, sizeof(*data.buf));
